@@ -1,8 +1,25 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.mail import send_mail
 
-# 1. Semester (e.g., Sem 1, Sem 2)
+
+
+
+class Course(models.Model):
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return self.name
+
+class Year(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE)
+    year_number = models.IntegerField()  # 1, 2, 3
+
+    def __str__(self):
+        return f"{self.course.name} - Year {self.year_number}"
+
 class Semester(models.Model):
+    year = models.ForeignKey(Year, on_delete=models.CASCADE, null=True, blank=True)  # NEW
     name = models.CharField(max_length=50)
     is_active = models.BooleanField(default=True)
     def __str__(self): return self.name
@@ -26,6 +43,8 @@ class Schedule(models.Model):
 class StudentProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     roll_no = models.IntegerField(unique=True)
+    course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True)
+    year = models.ForeignKey(Year, on_delete=models.SET_NULL, null=True)
     semester = models.ForeignKey(Semester, on_delete=models.SET_NULL, null=True)
     face_baseline = models.ImageField(upload_to='profiles/') # Ye photo match ke liye hogi
     class_lat = models.FloatField(default=22.747275) # indore default Lat
@@ -49,8 +68,30 @@ class StudentQuery(models.Model):
     roll_no = models.CharField(max_length=20)
     email = models.EmailField()
     reason = models.TextField()
+    reply = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_resolved = models.BooleanField(default=False) # Admin ise check kar sakta hai
 
     def __str__(self):
         return f"Query by {self.name} - {self.roll_no}"    
+    
+    from django.core.mail import send_mail
+
+def save(self, *args, **kwargs):
+    old_reply = None
+
+    if self.pk:
+        old = StudentQuery.objects.get(pk=self.pk)
+        old_reply = old.reply
+
+    super().save(*args, **kwargs)
+
+    # 🔥 Email only when new reply added
+    if self.reply and self.reply != old_reply:
+        send_mail(
+            'Reply to your query',
+            f'Hello {self.name},\n\nYour Query:\n{self.reason}\n\nReply:\n{self.reply}',
+            'your_email@gmail.com',
+            [self.email],
+            fail_silently=True,
+        )

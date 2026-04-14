@@ -4,14 +4,22 @@ import os
 from datetime import datetime
 
 from django.shortcuts import render, redirect
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.models import User
-from .forms import StudentSignupForm
+from .forms import StudentProfileForm, StudentSignupForm
 from datetime import timedelta,date
+from django.utils.http import urlsafe_base64_decode
+from .models import StudentProfile, StudentQuery
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+from django.core.mail import send_mail
+from django.contrib.auth import login
 from .forms import QueryForm
+
 
 
 
@@ -120,7 +128,13 @@ def mark_attendance(request):
 @login_required
 def student_dashboard(request):
     user = request.user
-    profile = user.studentprofile
+    try:
+        profile = request.user.studentprofile
+    except StudentProfile.DoesNotExist:
+        return redirect('complete_profile')  # No profile yet → redirect
+
+    if not profile.profile_completed:
+        return redirect('complete_profile')  # Incomplete → redirect
     subjects = Subject.objects.filter(semester=profile.semester)
     joining_date = user.date_joined.date()
     today = date.today()
@@ -154,6 +168,11 @@ def student_dashboard(request):
         'user': user,
         'joining_date': joining_date
     }
+
+    queries = StudentQuery.objects.filter(student=request.user).order_by('-created_at')
+    context['queries'] = queries
+    
+
     if request.method == 'POST' and 'submit_query' in request.POST:
         query_form = QueryForm(request.POST)
         if query_form.is_valid():
@@ -166,7 +185,7 @@ def student_dashboard(request):
         query_form = QueryForm(initial={
             'name': request.user.username,
             'email': request.user.email,
-            'roll_no': request.user.studentprofile.roll_no # Agar profile mein hai
+           'roll_no': getattr(request.user.studentprofile, 'roll_no', '')
         })
 
     # Context mein query_form add karein
@@ -175,7 +194,7 @@ def student_dashboard(request):
 
 def student_signup(request):
     if request.method == 'POST':
-        form = StudentSignupForm(request.POST, request.FILES)
+        form = StudentSignupForm(request.POST)
 
         if form.is_valid():
             username = form.cleaned_data['username']
@@ -188,16 +207,100 @@ def student_signup(request):
                 email=email,
                 password=password
             )
+            user.is_active = False   # 🔥 IMPORTANT
+            user.save()
 
-            # Create Profile
-            profile = form.save(commit=False)
-            profile.user = user
-            profile.save()
+            
 
-            messages.success(request, "Account created successfully!")
+            # ✅ token generate
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            
+            link = f"http://127.0.0.1:8000/attendance/verify/{uid}/{token}/"
+            
+            # ✅ email send
+            send_mail(
+                'Verify your account',
+                f'Click this link to verify: {link}',
+                'baghel.vikram1010@gmail.com',
+                [user.email],
+            )
+
+            messages.success(request, "Check your email to verify account")
             return redirect('login')
     else:
         form = StudentSignupForm()
 
     return render(request, 'attendance/signup.html', {'form': form})
 
+
+
+def verify_email(request, uidb64, token):
+    try:
+        uid = urlsafe_base64_decode(uidb64).decode()
+        user = User.objects.get(pk=uid)
+    except:
+        user = None
+
+    if user and default_token_generator.check_token(user, token):
+        user.is_active = True
+        user.save()
+
+        login(request, user)  # 🔥 Auto-login after verification
+
+        messages.success(request, "Email verified! Please complete your profile.")
+        return redirect('complete_profile')   # 🔥 next step
+
+    else:
+        return HttpResponse("Invalid or expired link")
+
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def complete_profile(request):
+    try:
+        profile = request.user.studentprofile
+    except StudentProfile.DoesNotExist:
+        profile = None
+    
+    if profile and profile.profile_completed:
+        return redirect('student_dashboard')  # Already completed → dashboard
+    
+    if request.method == 'POST':
+        form = StudentProfileForm(request.POST, request.FILES)
+
+        if form.is_valid():
+            profile = form.save(commit=False)
+            profile.user = request.user
+            profile.profile_completed = True
+            profile.save()
+
+            messages.success(request, "Profile completed successfully!")
+            return redirect('student_dashboard')
+    else:
+        form = StudentProfileForm()
+
+    return render(request, 'attendance/complete_profile.html', {'form': form})        
+
+# views.py
+from django.shortcuts import render, redirect
+from .forms import StudentProfileForm
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def complete_profile(request):
+    profile = request.user.studentprofile  # OneToOne field
+    if profile.profile_completed:
+        return redirect('dashboard')  # already complete → dashboard
+
+    if request.method == 'POST':
+        form = StudentProfileForm(request.POST, request.FILES, instance=profile)
+        if form.is_valid():
+            profile = form.save(commit=False)
+            profile.profile_completed = True
+            profile.save()
+            return redirect('dashboard')
+    else:
+        form = StudentProfileForm(instance=profile)
+
+    return render(request, 'complete_profile.html', {'form': form})

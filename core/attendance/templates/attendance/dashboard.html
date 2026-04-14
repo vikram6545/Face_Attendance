@@ -168,6 +168,49 @@
 
         </div>
     </div>
+    <div class="card shadow-lg border-0 glass-card mt-4">
+    <div class="card-body p-4">
+
+        <h4 class="mb-4 text-center fw-bold">💬 Your Queries</h4>
+
+        <!-- Filter Buttons -->
+        <div class="text-center mb-3">
+            <a href="?status=all" class="btn btn-secondary btn-sm">All</a>
+            <a href="?status=pending" class="btn btn-warning btn-sm">Pending</a>
+            <a href="?status=resolved" class="btn btn-success btn-sm">Resolved</a>
+        </div>
+
+        {% for q in queries %}
+        <div class="card p-3 mb-3 shadow-sm">
+
+            <p><b>Query:</b> {{ q.reason }}</p>
+
+            <p>
+                <b>Status:</b>
+                {% if q.is_resolved %}
+                    <span class="text-success fw-bold">Resolved</span>
+                {% else %}
+                    <span class="text-warning fw-bold">Pending</span>
+                {% endif %}
+            </p>
+
+            {% if q.reply %}
+                <div class="alert alert-success p-2">
+                    <b>Admin Reply:</b> {{ q.reply }}
+                </div>
+            {% else %}
+                <p class="text-muted"><i>No reply yet</i></p>
+            {% endif %}
+
+            <small class="text-muted">{{ q.created_at }}</small>
+
+        </div>
+        {% empty %}
+        <p class="text-center text-muted">No queries submitted yet</p>
+        {% endfor %}
+
+    </div>
+</div>
 
 </div>
 <div class="text-center mt-4">
