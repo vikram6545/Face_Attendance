@@ -12,18 +12,7 @@
 
         <h3 class="text-center text-primary mb-4">Complete Your Profile</h3>
 
-        <!-- Django messages -->
-        {% if messages %}
-            {% for message in messages %}
-                <div class="alert alert-success">{{ message }}</div>
-            {% endfor %}
-        {% endif %}
-        
-        {% if form.errors %}
-            <div class="alert alert-danger">
-                {{ form.errors }}
-            </div>
-        {% endif %}
+       
 
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}

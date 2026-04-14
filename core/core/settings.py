@@ -26,14 +26,7 @@ SECRET_KEY = 'django-insecure-l9u1_@agujks2!3=jrpc)_m%$yzwk1))w$n6wd#f=0#u*a=*s$
 DEBUG = True
 
 # settings.py में ALLOWED_HOSTS को अपडेट करना
-sed -i "s/ALLOWED_HOSTS = \[\]/ALLOWED_HOSTS = ['*']/g" $(find . -name settings.py)
-
-# स्टैटिक फाइल्स और डेटाबेस सेटअप
-python manage.py collectstatic --noinput
-python manage.py migrate
-
-
-# Application definition
+ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
     'django.contrib.admin',

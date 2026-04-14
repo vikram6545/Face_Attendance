@@ -19,11 +19,6 @@ from django.utils.encoding import force_bytes
 from django.core.mail import send_mail
 from django.contrib.auth import login
 from .forms import QueryForm
-
-
-
-
-# Models aur utils
 from .models import StudentProfile, Attendance, Schedule, Holiday, Subject
 from .utils import verify_face 
 
@@ -42,10 +37,10 @@ def mark_attendance(request):
 
     if request.method == 'POST':
         user = request.user
-        profile = user.studentprofile
+        profile, created = StudentProfile.objects.get_or_create(user=user)
         today = datetime.now()
         if Holiday.objects.filter(date=today.date()).exists():
-            messages.error(request, "Tday is a holiday: " + Holiday.objects.get(date=today.date()).reason)
+            messages.error(request, "Today is a holiday: " + Holiday.objects.get(date=today.date()).reason)
             return redirect('student_dashboard')
         
         # --- DEBUGGING START ---
@@ -75,14 +70,14 @@ def mark_attendance(request):
 
         if not sched:
             # Agar class ka time nahi hai ya schedule galat hai
-            messages.warning(request, f'Attendance Fail: Abhi aapki koi class scheduled nahi hai (Day: {today.strftime("%A")}, Time: {today.strftime("%H:%M")}).')
+            messages.warning(request, f'Attendance Failled: Todays No Class (Day: {today.strftime("%A")}, Time: {today.strftime("%H:%M")}).')
             return redirect('student_dashboard')
         
         current_subject = sched.subject
 
         # 2. Duplicate Check
         if Attendance.objects.filter(student=user, subject=current_subject, date=today.date()).exists():
-            messages.info(request, f'Dubaara koshish: Aapne {current_subject.name} ki attendance aaj pehle hi laga di hai.')
+            messages.info(request, f'Duplicate Attendance:Your {current_subject.name} attendance is already marked for today.')
             return redirect('student_dashboard')
 
         try:
@@ -92,13 +87,13 @@ def mark_attendance(request):
             dist = get_distance(u_lat, u_lon, profile.class_lat, profile.class_lon)
             
             if dist > 100:
-                messages.error(request, f'Location Fail: Aap class se {int(dist)}m door hain. Kripya class ke andar jayein.')
+                messages.error(request, f'Location Failed: you are {int(dist)}m away from the class location. Please move closer and try again.')
                 return render(request, 'attendance/mark.html')
 
             # 4. Image/Camera Check
             img_data = request.POST.get('image')
             if not img_data:
-                messages.error(request, 'Camera Error: Photo capture nahi ho payi. Dobara try karein.')
+                messages.error(request, 'Camera Error: No image data received please try again.')
                 return render(request, 'attendance/mark.html')
 
             # Image processing logic (Same as before)
@@ -115,11 +110,11 @@ def mark_attendance(request):
 
             if match_result is True:
                 Attendance.objects.create(student=user, subject=current_subject, status=True)
-                messages.success(request, f'Success: {current_subject.name} ki attendance lag gayi hai!')
+                messages.success(request, f'Successful: {current_subject.name} attendance marked successfully!')
                 return redirect('student_dashboard')
             else:
                 # Jab face match na ho ya andhera ho
-                messages.error(request, 'Face Match Fail: Chehra sahi se pehchana nahi gaya. Kripya roshni mein khade ho kar dobara try karein.')
+                messages.error(request, 'Face Recognition Failed: Unable to verify your face. Please ensure good lighting and try again.')
                 return render(request, 'attendance/mark.html')
 
         except Exception as e:
@@ -128,10 +123,7 @@ def mark_attendance(request):
 @login_required
 def student_dashboard(request):
     user = request.user
-    try:
-        profile = request.user.studentprofile
-    except StudentProfile.DoesNotExist:
-        return redirect('complete_profile')  # No profile yet → redirect
+    profile = StudentProfile.objects.get(user=request.user)
 
     if not profile.profile_completed:
         return redirect('complete_profile')  # Incomplete → redirect
@@ -179,13 +171,13 @@ def student_dashboard(request):
             query = query_form.save(commit=False)
             query.student = request.user
             query.save()
-            messages.success(request, "Aapki query admin ko bhej di gayi hai!")
+            messages.success(request, "Query submitted successfully!")
             return redirect('student_dashboard')
     else:
         query_form = QueryForm(initial={
-            'name': request.user.username,
-            'email': request.user.email,
-           'roll_no': getattr(request.user.studentprofile, 'roll_no', '')
+        'name': request.user.username,
+        'email': request.user.email,
+        'roll_no': getattr(profile, 'roll_no', '')
         })
 
     # Context mein query_form add karein
@@ -221,13 +213,13 @@ def student_signup(request):
             # ✅ email send
             send_mail(
                 'Verify your account',
-                f'Click this link to verify: {link}',
-                'baghel.vikram1010@gmail.com',
+                f'Click this link to verify your account:\n\n{link}',
+                settings.EMAIL_HOST_USER,
                 [user.email],
-            )
+                )
 
             messages.success(request, "Check your email to verify account")
-            return redirect('login')
+            return redirect('student_signup')
     else:
         form = StudentSignupForm()
 
@@ -247,10 +239,10 @@ def verify_email(request, uidb64, token):
         user.save()
 
         login(request, user)  # 🔥 Auto-login after verification
-
-        messages.success(request, "Email verified! Please complete your profile.")
-        return redirect('complete_profile')   # 🔥 next step
-
+        profile, created = StudentProfile.objects.get_or_create(user=user)
+        if profile.profile_completed:
+            return redirect('student_dashboard')
+        return redirect('complete_profile')
     else:
         return HttpResponse("Invalid or expired link")
 
@@ -258,49 +250,26 @@ from django.contrib.auth.decorators import login_required
 
 @login_required
 def complete_profile(request):
-    try:
-        profile = request.user.studentprofile
-    except StudentProfile.DoesNotExist:
-        profile = None
-    
-    if profile and profile.profile_completed:
-        return redirect('student_dashboard')  # Already completed → dashboard
-    
+    profile, created = StudentProfile.objects.get_or_create(user=request.user)
+
+    if profile.profile_completed:
+        return redirect('student_dashboard')
+
     if request.method == 'POST':
-        form = StudentProfileForm(request.POST, request.FILES)
+        form = StudentProfileForm(request.POST, request.FILES, instance=profile)
 
         if form.is_valid():
             profile = form.save(commit=False)
-            profile.user = request.user
             profile.profile_completed = True
             profile.save()
 
             messages.success(request, "Profile completed successfully!")
             return redirect('student_dashboard')
-    else:
-        form = StudentProfileForm()
 
-    return render(request, 'attendance/complete_profile.html', {'form': form})        
-
-# views.py
-from django.shortcuts import render, redirect
-from .forms import StudentProfileForm
-from django.contrib.auth.decorators import login_required
-
-@login_required
-def complete_profile(request):
-    profile = request.user.studentprofile  # OneToOne field
-    if profile.profile_completed:
-        return redirect('dashboard')  # already complete → dashboard
-
-    if request.method == 'POST':
-        form = StudentProfileForm(request.POST, request.FILES, instance=profile)
-        if form.is_valid():
-            profile = form.save(commit=False)
-            profile.profile_completed = True
-            profile.save()
-            return redirect('dashboard')
     else:
         form = StudentProfileForm(instance=profile)
 
-    return render(request, 'complete_profile.html', {'form': form})
+    return render(request, 'attendance/complete_profile.html', {'form': form})        
+
+
+

@@ -42,7 +42,8 @@ class Schedule(models.Model):
 # 4. Student Profile (Photo & Location)
 class StudentProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    roll_no = models.IntegerField(unique=True)
+    profile_completed = models.BooleanField(default=False)
+    roll_no = models.IntegerField(unique=True, null=True, blank=True)
     course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True)
     year = models.ForeignKey(Year, on_delete=models.SET_NULL, null=True)
     semester = models.ForeignKey(Semester, on_delete=models.SET_NULL, null=True)
@@ -65,7 +66,7 @@ class Attendance(models.Model):
 class StudentQuery(models.Model):
     student = models.ForeignKey(User, on_delete=models.CASCADE)
     name = models.CharField(max_length=100)
-    roll_no = models.CharField(max_length=20)
+    roll_no = models.CharField(max_length=20, null=True, blank=True)
     email = models.EmailField()
     reason = models.TextField()
     reply = models.TextField(blank=True, null=True)
